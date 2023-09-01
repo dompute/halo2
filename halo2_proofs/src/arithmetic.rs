@@ -8,6 +8,7 @@ use group::{
     Curve, Group, GroupOpsOwned, ScalarMulOwned,
 };
 
+use halo2curves::bn256::{Fr, G1Affine, G1};
 pub use halo2curves::{CurveAffine, CurveExt};
 
 /// This represents an element of a group with basic operations that can be
@@ -139,12 +140,7 @@ pub fn small_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::C
     acc
 }
 
-/// Performs a multi-exponentiation operation.
-///
-/// This function will panic if coeffs and bases have a different length.
-///
-/// This will use multithreading if beneficial.
-pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Curve {
+fn best_multiexp_inner<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Curve {
     assert_eq!(coeffs.len(), bases.len());
 
     let num_threads = multicore::current_num_threads();
@@ -173,6 +169,32 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
     }
 }
 
+/// Performs a multi-exponentiation operation.
+///
+/// This function will panic if coeffs and bases have a different length.
+///
+/// This will use multithreading if beneficial.
+pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Curve {
+    trait Functor<C: CurveAffine> {
+        fn invoke(coeffs: &[C::Scalar], bases: &[C]) -> C::Curve;
+    }
+
+    impl<C: CurveAffine> Functor<C> for () {
+        default fn invoke(coeffs: &[C::Scalar], bases: &[C]) -> C::Curve {
+            best_multiexp_inner(coeffs, bases)
+        }
+    }
+
+    #[cfg(feature = "cuda")]
+    impl Functor<G1Affine> for () {
+        fn invoke(coeffs: &[Fr], bases: &[G1Affine]) -> G1 {
+            cuda::msm(coeffs, bases)
+        }
+    }
+
+    <() as Functor<C>>::invoke(coeffs, bases)
+}
+
 /// Performs a radix-$2$ Fast-Fourier Transformation (FFT) on a vector of size
 /// $n = 2^k$, when provided `log_n` = $k$ and an element of multiplicative
 /// order $n$ called `omega` ($\omega$). The result is that the vector `a`, when
@@ -184,6 +206,27 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
 ///
 /// This will use multithreading if beneficial.
 pub fn best_fft<Scalar: Field, G: FftGroup<Scalar>>(a: &mut [G], omega: Scalar, log_n: u32) {
+    trait Functor<Scalar: Field, G: FftGroup<Scalar>> {
+        fn invoke(a: &mut [G], omega: Scalar, log_n: u32);
+    }
+
+    impl<Scalar: Field, G: FftGroup<Scalar>> Functor<Scalar, G> for () {
+        default fn invoke(a: &mut [G], omega: Scalar, log_n: u32) {
+            best_fft_inner(a, omega, log_n)
+        }
+    }
+
+    #[cfg(feature = "cuda")]
+    impl Functor<Fr, Fr> for () {
+        fn invoke(a: &mut [Fr], omega: Fr, log_n: u32) {
+            cuda::fft(a, omega, log_n)
+        }
+    }
+
+    <() as Functor<Scalar, G>>::invoke(a, omega, log_n)
+}
+
+fn best_fft_inner<Scalar: Field, G: FftGroup<Scalar>>(a: &mut [G], omega: Scalar, log_n: u32) {
     fn bitreverse(mut n: usize, l: usize) -> usize {
         let mut r = 0;
         for _ in 0..l {
@@ -519,5 +562,48 @@ fn test_lagrange_interpolate() {
         for (point, eval) in points.iter().zip(evals) {
             assert_eq!(eval_polynomial(&poly, *point), *eval);
         }
+    }
+}
+
+#[cfg(feature = "cuda")]
+mod cuda {
+    use std::ffi::c_void;
+
+    use fam::{fft_fr, msm_fr_g1, U256};
+    use group::{prime::PrimeCurveAffine, Group};
+    use halo2curves::bn256::{Fr, G1Affine, G1};
+
+    pub fn msm(scalars: &[Fr], bases: &[G1Affine]) -> G1 {
+        let bases = bases.iter().map(|a| a.to_curve()).collect::<Vec<_>>();
+        let mut out = G1::identity();
+        let buf_len = bases.len();
+        unsafe {
+            msm_fr_g1(
+                bases.as_ptr() as *const c_void,
+                scalars.as_ptr() as *const c_void,
+                buf_len as u32,
+                &mut out as *mut _ as *mut c_void,
+            );
+        };
+        out
+    }
+
+    pub fn fft(a: &mut [Fr], omega: Fr, log_n: u32) {
+        assert!(a.len() == (1 << log_n));
+        let twiddles_len = a.len() / 2;
+        let twiddles: Vec<_> = (0..twiddles_len)
+            .scan(Fr::one(), |w, _| {
+                let tw = *w;
+                *w *= &omega;
+                Some(tw)
+            })
+            .collect();
+        unsafe {
+            fam::fft_fr(
+                a.as_mut_ptr() as *mut c_void as *mut U256,
+                twiddles.as_ptr() as *const c_void as *const U256,
+                log_n,
+            );
+        };
     }
 }

@@ -1,5 +1,5 @@
 //! # halo2_proofs
-
+#![feature(min_specialization)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 // Build without warnings on stable 1.51 and later.
 #![allow(unknown_lints)]
@@ -20,7 +20,6 @@
 #![deny(broken_intra_doc_links)]
 #![deny(missing_debug_implementations)]
 #![deny(missing_docs)]
-#![deny(unsafe_code)]
 // Remove this once we update pasta_curves
 #![allow(unused_imports)]
 #![allow(clippy::derive_partial_eq_without_eq)]
