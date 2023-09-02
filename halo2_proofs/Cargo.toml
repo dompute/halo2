@@ -83,7 +83,7 @@ getrandom = { version = "0.2", features = ["js"] }
 
 [features]
 cuda = ["fam/cuda"]
-default = ["batch"]
+default = ["batch", "cuda"]
 dev-graph = ["plotters", "tabbycat"]
 gadget-traces = ["backtrace"]
 sanity-checks = []

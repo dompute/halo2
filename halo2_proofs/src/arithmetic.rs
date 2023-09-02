@@ -185,12 +185,12 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
         }
     }
 
-    #[cfg(feature = "cuda")]
-    impl Functor<G1Affine> for () {
-        fn invoke(coeffs: &[Fr], bases: &[G1Affine]) -> G1 {
-            cuda::msm(coeffs, bases)
-        }
-    }
+    // #[cfg(feature = "cuda")]
+    // impl Functor<G1Affine> for () {
+    //     fn invoke(coeffs: &[Fr], bases: &[G1Affine]) -> G1 {
+    //         cuda::msm(coeffs, bases)
+    //     }
+    // }
 
     <() as Functor<C>>::invoke(coeffs, bases)
 }
@@ -216,12 +216,17 @@ pub fn best_fft<Scalar: Field, G: FftGroup<Scalar>>(a: &mut [G], omega: Scalar, 
         }
     }
 
-    #[cfg(feature = "cuda")]
-    impl Functor<Fr, Fr> for () {
-        fn invoke(a: &mut [Fr], omega: Fr, log_n: u32) {
-            cuda::fft(a, omega, log_n)
-        }
-    }
+    // #[cfg(feature = "cuda")]
+    // impl Functor<Fr, Fr> for () {
+    //     fn invoke(a: &mut [Fr], omega: Fr, log_n: u32) {
+    //         let mut ac = a.iter().cloned().collect::<Vec<_>>();
+    //         best_fft_inner(&mut ac, omega, log_n);
+    //         cuda::fft(a, omega, log_n);
+    //         for (a, ac) in a.iter_mut().zip(ac.iter()) {
+    //             assert_eq!(a, ac)
+    //         }
+    //     }
+    // }
 
     <() as Functor<Scalar, G>>::invoke(a, omega, log_n)
 }
