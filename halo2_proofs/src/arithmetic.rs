@@ -185,12 +185,12 @@ pub fn best_multiexp<C: CurveAffine>(coeffs: &[C::Scalar], bases: &[C]) -> C::Cu
         }
     }
 
-    // #[cfg(feature = "cuda")]
-    // impl Functor<G1Affine> for () {
-    //     fn invoke(coeffs: &[Fr], bases: &[G1Affine]) -> G1 {
-    //         cuda::msm(coeffs, bases)
-    //     }
-    // }
+    #[cfg(feature = "cuda")]
+    impl Functor<G1Affine> for () {
+        fn invoke(coeffs: &[Fr], bases: &[G1Affine]) -> G1 {
+            cuda::msm(coeffs, bases)
+        }
+    }
 
     <() as Functor<C>>::invoke(coeffs, bases)
 }
@@ -219,12 +219,12 @@ pub fn best_fft<Scalar: Field, G: FftGroup<Scalar>>(a: &mut [G], omega: Scalar, 
     // #[cfg(feature = "cuda")]
     // impl Functor<Fr, Fr> for () {
     //     fn invoke(a: &mut [Fr], omega: Fr, log_n: u32) {
-    //         let mut ac = a.iter().cloned().collect::<Vec<_>>();
-    //         best_fft_inner(&mut ac, omega, log_n);
+    //         // let mut ac = a.iter().cloned().collect::<Vec<_>>();
+    //         best_fft_inner(a, omega, log_n);
     //         cuda::fft(a, omega, log_n);
-    //         for (a, ac) in a.iter_mut().zip(ac.iter()) {
-    //             assert_eq!(a, ac)
-    //         }
+    //         // for (a, ac) in a.iter_mut().zip(ac.iter()) {
+    //         //     assert_eq!(a, ac)
+    //         // }
     //     }
     // }
 
@@ -610,5 +610,57 @@ mod cuda {
                 log_n,
             );
         };
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use ff::{Field, PrimeField};
+
+        use group::{Curve, Group};
+        use halo2curves::bn256::{Fq, Fr, G1Affine, G1};
+        use rand_core::OsRng;
+
+        use crate::arithmetic::best_multiexp_inner;
+
+        fn fr_from_str(r: &str) -> Fr {
+            let a = u64::from_str_radix(&r[0..16], 16).unwrap();
+            let b = u64::from_str_radix(&r[16..32], 16).unwrap();
+            let c = u64::from_str_radix(&r[32..48], 16).unwrap();
+            let d = u64::from_str_radix(&r[48..64], 16).unwrap();
+            Fr::from_raw([d, c, b, a])
+        }
+
+        fn fq_from_str(r: &str) -> Fq {
+            let a = u64::from_str_radix(&r[0..16], 16).unwrap();
+            let b = u64::from_str_radix(&r[16..32], 16).unwrap();
+            let c = u64::from_str_radix(&r[32..48], 16).unwrap();
+            let d = u64::from_str_radix(&r[48..64], 16).unwrap();
+            Fq::from_raw([d, c, b, a])
+        }
+
+        fn g1_from_str(r: &str) -> G1Affine {
+            let x = fq_from_str(&r[3..67]);
+            let y = fq_from_str(&r[71..135]);
+            G1Affine { x, y }
+        }
+
+        #[test]
+        fn test_msm() {
+            const N: usize = 1 << 18;
+            // let scalars = (0..N).map(|_| Fr::random(OsRng)).collect::<Vec<_>>();
+            // let bases = (0..N).map(|_| G1Affine::random(OsRng)).collect::<Vec<_>>();
+            let scalars = (0..N)
+                .map(|_| {
+                    fr_from_str("1cf142772092bc7e45d20c5bf3fa86f699342979e082055af5558902c9dbec17")
+                })
+                .collect::<Vec<_>>();
+            let bases = (0..N).map(|_| G1Affine::generator()).collect::<Vec<_>>();
+            for i in 0..100 {
+                let gpu = super::msm(&scalars, &bases);
+                let cpu = best_multiexp_inner(&scalars, &bases);
+                assert_eq!(gpu.to_affine(), cpu.to_affine());
+                println!("{}:: {:?}, {:?}", i, gpu.to_affine(), cpu.to_affine());
+            }
+        }
     }
 }

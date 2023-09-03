@@ -446,12 +446,12 @@ fn add_expression<F: PrimeField>(
 }
 
 /// Creates a new evaluation structure
-pub fn instance<C: CurveAffine>(graph: &GraphEvaluator<C::ScalarExt>) -> EvaluationData<C> {
-    EvaluationData {
-        intermediates: vec![C::ScalarExt::ZERO; graph.num_intermediates],
-        rotations: vec![0usize; graph.rotations.len()],
-    }
-}
+// pub fn instance<C: CurveAffine>(graph: &GraphEvaluator<C::ScalarExt>) -> EvaluationData<C> {
+//     EvaluationData {
+//         intermediates: vec![C::ScalarExt::ZERO; graph.num_intermediates],
+//         rotations: vec![0usize; graph.rotations.len()],
+//     }
+// }
 
 /// Simple evaluation of an expression
 pub fn evaluate<F: Field, B: Basis>(
