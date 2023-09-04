@@ -82,8 +82,9 @@ rand_core = { version = "0.6", default-features = false, features = [
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
+profile = ["fam/profile"]
 cuda = ["fam/cuda"]
-default = ["batch", "cuda"]
+default = ["batch"]
 dev-graph = ["plotters", "tabbycat"]
 gadget-traces = ["backtrace"]
 sanity-checks = []
