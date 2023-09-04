@@ -161,11 +161,12 @@ impl<C: CurveAffine> Evaluator<C> {
         let mut values = domain.empty_extended();
 
         // Core expression evaluations
-        for (((advice, instance), lookups), permutation) in advice
+        for (round, (((advice, instance), lookups), permutation)) in advice
             .iter()
             .zip(instance.iter())
             .zip(lookups.iter())
             .zip(permutations.iter())
+            .enumerate()
         {
             // Custom gates
             self.custom_gates.evaluate(
@@ -180,6 +181,7 @@ impl<C: CurveAffine> Evaluator<C> {
                 &y,
                 rot_scale,
                 isize,
+                round,
             );
 
             // Permutations
@@ -193,6 +195,7 @@ impl<C: CurveAffine> Evaluator<C> {
                 let first_set = sets.first().unwrap();
                 let last_set = sets.last().unwrap();
 
+                let pk_permutation = &pk.permutation;
                 // Permutation constraints
                 parallelize(&mut values, |values, start| {
                     let mut beta_term = extended_omega.pow_vartime(&[start as u64, 0, 0, 0]);
@@ -232,7 +235,7 @@ impl<C: CurveAffine> Evaluator<C> {
                         for ((set, columns), cosets) in sets
                             .iter()
                             .zip(p.columns.chunks(chunk_len))
-                            .zip(pk.permutation.cosets.chunks(chunk_len))
+                            .zip(pk_permutation.cosets.chunks(chunk_len))
                         {
                             let mut left = set.permutation_product_coset[r_next];
                             for (values, permutation) in columns
@@ -292,6 +295,7 @@ impl<C: CurveAffine> Evaluator<C> {
                     &y,
                     rot_scale,
                     isize,
+                    round,
                 );
                 // Lookup constraints
                 parallelize(&mut values, |values, start| {
