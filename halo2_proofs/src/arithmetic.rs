@@ -216,17 +216,12 @@ pub fn best_fft<Scalar: Field, G: FftGroup<Scalar>>(a: &mut [G], omega: Scalar, 
         }
     }
 
-    // #[cfg(feature = "cuda")]
-    // impl Functor<Fr, Fr> for () {
-    //     fn invoke(a: &mut [Fr], omega: Fr, log_n: u32) {
-    //         // let mut ac = a.iter().cloned().collect::<Vec<_>>();
-    //         best_fft_inner(a, omega, log_n);
-    //         cuda::fft(a, omega, log_n);
-    //         // for (a, ac) in a.iter_mut().zip(ac.iter()) {
-    //         //     assert_eq!(a, ac)
-    //         // }
-    //     }
-    // }
+    #[cfg(feature = "cuda")]
+    impl Functor<Fr, Fr> for () {
+        fn invoke(a: &mut [Fr], omega: Fr, log_n: u32) {
+            cuda::fft(a, omega, log_n);
+        }
+    }
 
     <() as Functor<Scalar, G>>::invoke(a, omega, log_n)
 }
@@ -281,8 +276,9 @@ fn best_fft_inner<Scalar: Field, G: FftGroup<Scalar>>(a: &mut [G], omega: Scalar
                     .zip(right.iter_mut())
                     .enumerate()
                     .for_each(|(i, (a, b))| {
-                        let mut t = *b;
-                        t *= &twiddles[(i + 1) * twiddle_chunk];
+                        // let mut t = *b;
+                        // t *= &twiddles[(i + 1) * twiddle_chunk];
+                        let t = *b * &twiddles[(i + 1) * twiddle_chunk];
                         *b = *a;
                         *a += &t;
                         *b -= &t;
@@ -620,7 +616,7 @@ mod cuda {
         use halo2curves::bn256::{Fq, Fr, G1Affine, G1};
         use rand_core::OsRng;
 
-        use crate::arithmetic::best_multiexp_inner;
+        use crate::arithmetic::{best_fft_inner, best_multiexp_inner};
 
         fn fr_from_str(r: &str) -> Fr {
             let a = u64::from_str_radix(&r[0..16], 16).unwrap();
@@ -660,6 +656,25 @@ mod cuda {
                 let cpu = best_multiexp_inner(&scalars, &bases);
                 assert_eq!(gpu.to_affine(), cpu.to_affine());
                 println!("{}:: {:?}, {:?}", i, gpu.to_affine(), cpu.to_affine());
+            }
+        }
+
+        #[test]
+        fn test_fft() {
+            const K: u32 = 4u32;
+            let mut g_a = (0..(1 << K))
+                .map(|i| Fr::from_raw([i as u64, 0, 0, 0]))
+                .collect::<Vec<_>>();
+            let mut g_b = g_a.clone();
+
+            let omega = Fr::random(OsRng);
+
+            best_fft_inner(&mut g_a, omega, K);
+            super::fft(&mut g_b, omega, K);
+
+            for (i, (cpu, gpu)) in g_a.iter().zip(g_b.iter()).enumerate() {
+                println!("{}", i);
+                assert_eq!(cpu, gpu);
             }
         }
     }
