@@ -58,6 +58,7 @@ cfg-if = "0.1"
 poseidon = { git = "https://github.com/scroll-tech/poseidon.git", branch = "scroll-dev-0220" }
 num-integer = "0.1"
 num-bigint = { version = "0.4", features = ["rand"] }
+fam = { path = "../../../dompute/fam-rs" }
 
 crossbeam = "0.8.0"
 # Developer tooling dependencies
@@ -74,7 +75,9 @@ assert_matches = "1.5"
 criterion = "0.3"
 gumdrop = "0.8"
 proptest = "1"
-rand_core = { version = "0.6", default-features = false, features = ["getrandom"] }
+rand_core = { version = "0.6", default-features = false, features = [
+    "getrandom",
+] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies]
 getrandom = { version = "0.2", features = ["js"] }
