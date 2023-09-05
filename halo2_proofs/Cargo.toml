@@ -63,7 +63,7 @@ tracing = "0.1"
 blake2b_simd = "1"
 sha3 = "0.9.1"
 rand_chacha = "0.3"
-fam = { path = "../../../dompute/fam-rs", default-features = false }
+fam = { path = "../../fam-rs", default-features = false }
 
 # Developer tooling dependencies
 plotters = { version = "0.3.0", optional = true }
