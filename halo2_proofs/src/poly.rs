@@ -31,6 +31,7 @@ pub mod kzg;
 mod multiopen_test;
 
 pub use domain::*;
+pub use fam::value_source::Rotation;
 pub use query::{ProverQuery, VerifierQuery};
 pub use strategy::{Guard, VerificationStrategy};
 
@@ -301,28 +302,5 @@ impl<'a, F: Field, B: Basis> Sub<F> for &'a Polynomial<F, B> {
         let mut res = self.clone();
         res.values[0] -= rhs;
         res
-    }
-}
-
-/// Describes the relative rotation of a vector. Negative numbers represent
-/// reverse (leftmost) rotations and positive numbers represent forward (rightmost)
-/// rotations. Zero represents no rotation.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Rotation(pub i32);
-
-impl Rotation {
-    /// The current location in the evaluation domain
-    pub fn cur() -> Rotation {
-        Rotation(0)
-    }
-
-    /// The previous location in the evaluation domain
-    pub fn prev() -> Rotation {
-        Rotation(-1)
-    }
-
-    /// The next location in the evaluation domain
-    pub fn next() -> Rotation {
-        Rotation(1)
     }
 }
