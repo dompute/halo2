@@ -352,7 +352,6 @@ impl<C: CurveAffine> Evaluator<C> {
 
                         // Lookup constraints
                         parallelize(&mut values, |values, start| {
-                            let lookup_evaluator = &self.lookups[n];
                             for (i, value) in values.iter_mut().enumerate() {
                                 let idx = start + i;
 
