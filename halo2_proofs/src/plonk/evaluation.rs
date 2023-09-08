@@ -42,9 +42,9 @@ pub use fam::{
 #[derive(Clone, Default, Debug)]
 pub struct Evaluator<C: CurveAffine> {
     ///  Custom gates evalution
-    pub custom_gates: GraphEvaluator<C::Scalar>,
+    pub custom_gates: GraphEvaluator<C::ScalarExt>,
     ///  Lookups evalution
-    pub lookups: Vec<GraphEvaluator<C::Scalar>>,
+    pub lookups: Vec<GraphEvaluator<C::ScalarExt>>,
 }
 /// EvaluationData
 #[derive(Default, Debug)]
