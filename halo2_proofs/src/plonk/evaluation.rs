@@ -140,7 +140,7 @@ impl<C: CurveAffine> Evaluator<C> {
         // Calculate the quotient polynomial for each part
         let mut current_extended_omega = one;
         let value_parts: Vec<Polynomial<C::ScalarExt, LagrangeCoeff>> = (0..num_parts)
-            .map(|part_idx| {
+            .map(|_| {
                 let fixed: Vec<Polynomial<C::ScalarExt, LagrangeCoeff>> = pk
                     .fixed_polys
                     .iter()
@@ -179,7 +179,6 @@ impl<C: CurveAffine> Evaluator<C> {
 
                 let mut values = domain.empty_lagrange();
 
-                let mut round = part_idx * advice.len();
                 // Core expression evaluations
                 for (((advice, instance), lookups), permutation) in advice
                     .iter()
@@ -200,7 +199,7 @@ impl<C: CurveAffine> Evaluator<C> {
                         &y,
                         rot_scale,
                         isize,
-                        round,
+                        0,
                     );
 
                     // Permutations
@@ -334,6 +333,7 @@ impl<C: CurveAffine> Evaluator<C> {
                             current_extended_omega,
                         );
                         let mut table_values = vec![C::ScalarExt::zero(); values.len()];
+                        let round = if n + 1 == lookups.len() { 1 } else { 2 };
                         self.lookups[n].evaluate(
                             &mut table_values,
                             fixed,
@@ -394,7 +394,6 @@ impl<C: CurveAffine> Evaluator<C> {
                             }
                         });
                     }
-                    round += 1;
                 }
                 current_extended_omega *= extended_omega;
                 values
