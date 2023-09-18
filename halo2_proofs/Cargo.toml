@@ -58,7 +58,7 @@ cfg-if = "0.1"
 poseidon = { git = "https://github.com/scroll-tech/poseidon.git", branch = "scroll-dev-0220" }
 num-integer = "0.1"
 num-bigint = { version = "0.4", features = ["rand"] }
-fam = { path = "../../../dompute/fam-rs" }
+fam = { path = "../../halo2-arithmetic" }
 
 crossbeam = "0.8.0"
 # Developer tooling dependencies
