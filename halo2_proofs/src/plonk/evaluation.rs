@@ -140,7 +140,7 @@ impl<C: CurveAffine> Evaluator<C> {
         // Calculate the quotient polynomial for each part
         let mut current_extended_omega = one;
         let value_parts: Vec<Polynomial<C::ScalarExt, LagrangeCoeff>> = (0..num_parts)
-            .map(|_| {
+            .map(|part_idx| {
                 let fixed: Vec<Polynomial<C::ScalarExt, LagrangeCoeff>> = pk
                     .fixed_polys
                     .iter()
@@ -179,14 +179,13 @@ impl<C: CurveAffine> Evaluator<C> {
 
                 let mut values = domain.empty_lagrange();
 
+                let mut round = part_idx * advice.len();
                 // Core expression evaluations
-                let num_threads = multicore::current_num_threads();
-                for (round, (((advice, instance), lookups), permutation)) in advice
+                for (((advice, instance), lookups), permutation) in advice
                     .iter()
                     .zip(instance.iter())
                     .zip(lookups.iter())
                     .zip(permutations.iter())
-                    .enumerate()
                 {
                     // Custom gates
                     self.custom_gates.evaluate(
@@ -395,6 +394,7 @@ impl<C: CurveAffine> Evaluator<C> {
                             }
                         });
                     }
+                    round += 1;
                 }
                 current_extended_omega *= extended_omega;
                 values
