@@ -2,6 +2,7 @@ use ff::Field;
 use group::Curve;
 use halo2curves::CurveExt;
 use rand_core::RngCore;
+use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::BTreeSet;
 use std::env::var;
 use std::ops::{Range, RangeTo};
@@ -55,7 +56,10 @@ pub fn create_proof<
     instances: &[&[&[Scheme::Scalar]]],
     mut rng: R,
     transcript: &mut T,
-) -> Result<(), Error> {
+) -> Result<(), Error>
+where
+    Scheme::ParamsProver: Sync,
+{
     for instance in instances.iter() {
         if instance.len() != pk.vk.cs.num_instance_columns {
             return Err(Error::InvalidInstances);
@@ -101,7 +105,7 @@ pub fn create_proof<
 
             if P::QUERY_INSTANCE {
                 let instance_commitments_projective: Vec<_> = instance_values
-                    .iter()
+                    .par_iter()
                     .map(|poly| params.commit_lagrange(poly, Blind::default()))
                     .collect();
                 let mut instance_commitments =
@@ -472,8 +476,8 @@ pub fn create_proof<
                     .map(|_| Blind(Scheme::Scalar::random(&mut rng)))
                     .collect();
                 let advice_commitments_projective: Vec<_> = advice_values
-                    .iter()
-                    .zip(blinds.iter())
+                    .par_iter()
+                    .zip(blinds.par_iter())
                     .map(|(poly, blind)| params.commit_lagrange(poly, *blind))
                     .collect();
                 let mut advice_commitments =

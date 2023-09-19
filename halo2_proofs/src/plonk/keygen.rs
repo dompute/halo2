@@ -1,10 +1,10 @@
 #![allow(clippy::int_plus_one)]
 
 use std::ops::Range;
-use std::sync::Arc;
 
 use ff::Field;
 use group::Curve;
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use super::{
     circuit::{
@@ -327,7 +327,7 @@ pub fn keygen_vk<'params, C, P, ConcreteCircuit>(
 ) -> Result<VerifyingKey<C>, Error>
 where
     C: CurveAffine,
-    P: Params<'params, C>,
+    P: Params<'params, C> + Sync,
     ConcreteCircuit: Circuit<C::Scalar>,
 {
     let (domain, cs, config) = create_domain::<C, ConcreteCircuit>(params.k());
@@ -401,7 +401,7 @@ where
         .build_vk(params, &domain, &cs.permutation);
 
     let fixed_commitments = fixed
-        .iter()
+        .par_iter()
         .map(|poly| params.commit_lagrange(poly, Blind::default()).to_affine())
         .collect();
 
@@ -421,7 +421,7 @@ pub fn keygen_pk2<'params, C, P, ConcreteCircuit>(
 ) -> Result<ProvingKey<C>, Error>
 where
     C: CurveAffine,
-    P: Params<'params, C>,
+    P: Params<'params, C> + Sync,
     ConcreteCircuit: Circuit<C::Scalar>,
 {
     keygen_pk_impl(params, None, circuit)
@@ -435,7 +435,7 @@ pub fn keygen_pk<'params, C, P, ConcreteCircuit>(
 ) -> Result<ProvingKey<C>, Error>
 where
     C: CurveAffine,
-    P: Params<'params, C>,
+    P: Params<'params, C> + Sync,
     ConcreteCircuit: Circuit<C::Scalar>,
 {
     keygen_pk_impl(params, Some(vk), circuit)
@@ -449,7 +449,7 @@ pub fn keygen_pk_impl<'params, C, P, ConcreteCircuit>(
 ) -> Result<ProvingKey<C>, Error>
 where
     C: CurveAffine,
-    P: Params<'params, C>,
+    P: Params<'params, C> + Sync,
     ConcreteCircuit: Circuit<C::Scalar>,
 {
     let (domain, cs, config) = create_domain::<C, ConcreteCircuit>(params.k());
@@ -512,7 +512,7 @@ where
                 .build_vk(params, &domain, &cs.permutation);
 
             let fixed_commitments = fixed
-                .iter()
+                .par_iter()
                 .map(|poly| params.commit_lagrange(poly, Blind::default()).to_affine())
                 .collect();
 

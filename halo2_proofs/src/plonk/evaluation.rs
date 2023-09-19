@@ -16,6 +16,7 @@ use group::{
     ff::{BatchInvert, Field},
     Curve,
 };
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use std::any::TypeId;
 use std::convert::TryInto;
 use std::num::ParseIntError;
@@ -158,7 +159,7 @@ impl<C: CurveAffine> Evaluator<C> {
                     .iter()
                     .map(|advice_polys| {
                         advice_polys
-                            .iter()
+                            .par_iter()
                             .map(|poly| {
                                 domain.coeff_to_extended_part(poly.clone(), current_extended_omega)
                             })
@@ -169,7 +170,7 @@ impl<C: CurveAffine> Evaluator<C> {
                     .iter()
                     .map(|instance_polys| {
                         instance_polys
-                            .iter()
+                            .par_iter()
                             .map(|poly| {
                                 domain.coeff_to_extended_part(poly.clone(), current_extended_omega)
                             })
@@ -213,7 +214,7 @@ impl<C: CurveAffine> Evaluator<C> {
                         let permutation_product_cosets: Vec<
                             Polynomial<C::ScalarExt, LagrangeCoeff>,
                         > = sets
-                            .iter()
+                            .par_iter()
                             .map(|set| {
                                 domain.coeff_to_extended_part(
                                     set.permutation_product_poly.clone(),
@@ -224,7 +225,7 @@ impl<C: CurveAffine> Evaluator<C> {
                         let permutation_cosets: Vec<Polynomial<C::ScalarExt, LagrangeCoeff>> = pk
                             .permutation
                             .polys
-                            .iter()
+                            .par_iter()
                             .map(|p| {
                                 domain.coeff_to_extended_part(p.clone(), current_extended_omega)
                             })
@@ -333,7 +334,7 @@ impl<C: CurveAffine> Evaluator<C> {
                             current_extended_omega,
                         );
                         let mut table_values = vec![C::ScalarExt::zero(); values.len()];
-                        let round = if n + 1 == lookups.len() { 1 } else { 2 };
+                        let round = if n + 1 == lookups.len() { 2 } else { 1 };
                         self.lookups[n].evaluate(
                             &mut table_values,
                             fixed,
