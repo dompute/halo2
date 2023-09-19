@@ -514,9 +514,10 @@ fn plonk_api() {
     }
     */
 
-    fn keygen<Scheme: CommitmentScheme>(
-        params: &Scheme::ParamsProver,
-    ) -> ProvingKey<Scheme::Curve> {
+    fn keygen<Scheme: CommitmentScheme>(params: &Scheme::ParamsProver) -> ProvingKey<Scheme::Curve>
+    where
+        Scheme::ParamsProver: Sync,
+    {
         let (_, _, lookup_table) = common!(Scheme);
         let empty_circuit: MyCircuit<Scheme::Scalar> = MyCircuit {
             a: Value::unknown(),
@@ -544,7 +545,10 @@ fn plonk_api() {
         rng: R,
         params: &'params Scheme::ParamsProver,
         pk: &ProvingKey<Scheme::Curve>,
-    ) -> Vec<u8> {
+    ) -> Vec<u8>
+    where
+        Scheme::ParamsProver: Sync,
+    {
         let (a, instance, lookup_table) = common!(Scheme);
 
         let circuit: MyCircuit<Scheme::Scalar> = MyCircuit {
