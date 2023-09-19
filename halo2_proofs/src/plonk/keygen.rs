@@ -1,6 +1,7 @@
 #![allow(clippy::int_plus_one)]
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use ff::Field;
 use group::Curve;

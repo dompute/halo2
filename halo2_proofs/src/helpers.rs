@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::plonk::{Any, Column};
 use crate::poly::Polynomial;
 use ff::Field;
