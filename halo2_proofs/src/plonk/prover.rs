@@ -3,11 +3,12 @@ use group::Curve;
 use halo2curves::CurveExt;
 use rand_core::RngCore;
 use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::env::var;
 use std::ops::{Range, RangeTo};
 use std::sync::atomic::AtomicUsize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use std::{collections::HashMap, iter, mem, sync::atomic::Ordering};
 
@@ -46,8 +47,8 @@ pub fn create_proof<
     Scheme: CommitmentScheme,
     P: Prover<'params, Scheme>,
     E: EncodedChallenge<Scheme::Curve>,
-    R: RngCore,
-    T: TranscriptWrite<Scheme::Curve, E>,
+    R: RngCore + Send,
+    T: TranscriptWrite<Scheme::Curve, E> + Send,
     ConcreteCircuit: Circuit<Scheme::Scalar>,
 >(
     params: &'params Scheme::ParamsProver,
@@ -520,32 +521,36 @@ where
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
-    let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = instance
-        .iter()
-        .zip(advice.iter())
-        .map(|(instance, advice)| -> Result<Vec<_>, Error> {
-            // Construct and commit to permuted values for each lookup
-            pk.vk
-                .cs
-                .lookups
-                .iter()
-                .map(|lookup| {
-                    lookup.commit_permuted(
-                        pk,
-                        params,
-                        domain,
-                        theta,
-                        &advice.advice_polys,
-                        &pk.fixed_values,
-                        &instance.instance_values,
-                        &challenges,
-                        &mut rng,
-                        transcript,
-                    )
-                })
-                .collect()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = {
+        let transcript = Arc::new(Mutex::new(&mut *transcript));
+        let rng = Arc::new(Mutex::new(&mut rng));
+        instance
+            .par_iter()
+            .zip(advice.par_iter())
+            .map(|(instance, advice)| -> Result<Vec<_>, Error> {
+                // Construct and commit to permuted values for each lookup
+                pk.vk
+                    .cs
+                    .lookups
+                    .iter()
+                    .map(|lookup| {
+                        lookup.commit_permuted(
+                            pk,
+                            params,
+                            domain,
+                            theta,
+                            &advice.advice_polys,
+                            &pk.fixed_values,
+                            &instance.instance_values,
+                            &challenges,
+                            rng.clone(),
+                            transcript.clone(),
+                        )
+                    })
+                    .collect()
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
 
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();

@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use super::super::{
     circuit::Expression, ChallengeBeta, ChallengeGamma, ChallengeTheta, ChallengeX, Error,
     ProvingKey,
@@ -79,8 +81,8 @@ impl<F: FieldExt> Argument<F> {
         fixed_values: &'a [Polynomial<C::Scalar, LagrangeCoeff>],
         instance_values: &'a [Polynomial<C::Scalar, LagrangeCoeff>],
         challenges: &'a [C::Scalar],
-        mut rng: R,
-        transcript: &mut T,
+        rng: Arc<Mutex<R>>,
+        transcript: Arc<Mutex<&mut T>>,
     ) -> Result<Permuted<C>, Error>
     where
         C: CurveAffine<ScalarExt = F>,
@@ -113,37 +115,51 @@ impl<F: FieldExt> Argument<F> {
         // Get values of table expressions involved in the lookup and compress them
         let compressed_table_expression = compress_expressions(&self.table_expressions);
 
-        // Permute compressed (InputExpression, TableExpression) pair
-        let (permuted_input_expression, permuted_table_expression) = permute_expression_pair(
-            pk,
-            params,
-            domain,
-            &mut rng,
-            &compressed_input_expression,
-            &compressed_table_expression,
-        )?;
+        let (permuted_input_expression, permuted_table_expression, b0, b1) = {
+            let mut rng = rng.lock().unwrap();
+            // Permute compressed (InputExpression, TableExpression) pair
+            let (permuted_input_expression, permuted_table_expression) = permute_expression_pair(
+                pk,
+                params,
+                domain,
+                &mut *rng,
+                &compressed_input_expression,
+                &compressed_table_expression,
+            )?;
+
+            (
+                permuted_input_expression,
+                permuted_table_expression,
+                C::Scalar::random(&mut *rng),
+                C::Scalar::random(&mut *rng),
+            )
+        };
 
         // Closure to construct commitment to vector of values
-        let mut commit_values = |values: &Polynomial<C::Scalar, LagrangeCoeff>| {
+        let commit_values = |values: &Polynomial<C::Scalar, LagrangeCoeff>, blind: C::Scalar| {
             let poly = pk.vk.domain.lagrange_to_coeff(values.clone());
-            let blind = Blind(C::Scalar::random(&mut rng));
+            let blind = Blind(blind);
             let commitment = params.commit_lagrange(values, blind).to_affine();
             (poly, blind, commitment)
         };
 
         // Commit to permuted input expression
         let (permuted_input_poly, permuted_input_blind, permuted_input_commitment) =
-            commit_values(&permuted_input_expression);
+            commit_values(&permuted_input_expression, b0);
 
         // Commit to permuted table expression
         let (permuted_table_poly, permuted_table_blind, permuted_table_commitment) =
-            commit_values(&permuted_table_expression);
+            commit_values(&permuted_table_expression, b1);
 
-        // Hash permuted input commitment
-        transcript.write_point(permuted_input_commitment)?;
+        {
+            let mut transcript = transcript.lock().unwrap();
 
-        // Hash permuted table commitment
-        transcript.write_point(permuted_table_commitment)?;
+            // Hash permuted input commitment
+            transcript.write_point(permuted_input_commitment)?;
+
+            // Hash permuted table commitment
+            transcript.write_point(permuted_table_commitment)?;
+        }
 
         Ok(Permuted {
             compressed_input_expression,
