@@ -63,15 +63,7 @@ impl<F: FieldExt> Argument<F> {
     /// - constructs Permuted<C> struct using permuted_input_value = A', and
     ///   permuted_table_expression = S'.
     /// The Permuted<C> struct is used to update the Lookup, and is then returned.
-    pub(in crate::plonk) fn commit_permuted<
-        'a,
-        'params: 'a,
-        C,
-        P: Params<'params, C>,
-        E: EncodedChallenge<C>,
-        R: RngCore,
-        T: TranscriptWrite<C, E>,
-    >(
+    pub(in crate::plonk) fn commit_permuted<'a, 'params: 'a, C, P: Params<'params, C>, R: RngCore>(
         &self,
         pk: &ProvingKey<C>,
         params: &P,
@@ -82,7 +74,7 @@ impl<F: FieldExt> Argument<F> {
         instance_values: &'a [Polynomial<C::Scalar, LagrangeCoeff>],
         challenges: &'a [C::Scalar],
         rng: Arc<Mutex<R>>,
-        transcript: Arc<Mutex<&mut T>>,
+        commits: &mut (C, C),
     ) -> Result<Permuted<C>, Error>
     where
         C: CurveAffine<ScalarExt = F>,
@@ -151,15 +143,13 @@ impl<F: FieldExt> Argument<F> {
         let (permuted_table_poly, permuted_table_blind, permuted_table_commitment) =
             commit_values(&permuted_table_expression, b1);
 
-        {
-            let mut transcript = transcript.lock().unwrap();
+        *commits = (permuted_input_commitment, permuted_table_commitment);
 
-            // Hash permuted input commitment
-            transcript.write_point(permuted_input_commitment)?;
+        // // Hash permuted input commitment
+        // transcript.write_point(permuted_input_commitment)?;
 
-            // Hash permuted table commitment
-            transcript.write_point(permuted_table_commitment)?;
-        }
+        // // Hash permuted table commitment
+        // transcript.write_point(permuted_table_commitment)?;
 
         Ok(Permuted {
             compressed_input_expression,
@@ -192,8 +182,8 @@ impl<C: CurveAffine> Permuted<C> {
         params: &P,
         beta: ChallengeBeta<C>,
         gamma: ChallengeGamma<C>,
-        mut rng: R,
-        transcript: &mut T,
+        rng: Arc<Mutex<R>>,
+        transcript: Arc<Mutex<&mut T>>,
     ) -> Result<Committed<C>, Error> {
         let blinding_factors = pk.vk.cs.blinding_factors();
         // Goal is to compute the products of fractions
@@ -250,18 +240,25 @@ impl<C: CurveAffine> Permuted<C> {
 
         // Compute the evaluations of the lookup product polynomial
         // over our domain, starting with z[0] = 1
-        let z = iter::once(C::Scalar::one())
-            .chain(lookup_product)
-            .scan(C::Scalar::one(), |state, cur| {
-                *state *= &cur;
-                Some(*state)
-            })
-            // Take all rows including the "last" row which should
-            // be a boolean (and ideally 1, else soundness is broken)
-            .take(params.n() as usize - blinding_factors)
-            // Chain random blinding factors.
-            .chain((0..blinding_factors).map(|_| C::Scalar::random(&mut rng)))
-            .collect::<Vec<_>>();
+        let (z, product_blind) = {
+            let mut rng = rng.lock().unwrap();
+
+            let z = iter::once(C::Scalar::one())
+                .chain(lookup_product)
+                .scan(C::Scalar::one(), |state, cur| {
+                    *state *= &cur;
+                    Some(*state)
+                })
+                // Take all rows including the "last" row which should
+                // be a boolean (and ideally 1, else soundness is broken)
+                .take(params.n() as usize - blinding_factors)
+                // Chain random blinding factors.
+                .chain((0..blinding_factors).map(|_| C::Scalar::random(&mut *rng)))
+                .collect::<Vec<_>>();
+
+            let product_blind = Blind(C::Scalar::random(&mut *rng));
+            (z, product_blind)
+        };
         assert_eq!(z.len(), params.n() as usize);
         let z = pk.vk.domain.lagrange_from_vec(z);
 
@@ -303,12 +300,14 @@ impl<C: CurveAffine> Permuted<C> {
             assert_eq!(z[u], C::Scalar::one());
         }
 
-        let product_blind = Blind(C::Scalar::random(rng));
         let product_commitment = params.commit_lagrange(&z, product_blind).to_affine();
         let z = pk.vk.domain.lagrange_to_coeff(z);
 
         // Hash product commitment
-        transcript.write_point(product_commitment)?;
+        {
+            let mut transcript = transcript.lock().unwrap();
+            transcript.write_point(product_commitment)?;
+        }
 
         Ok(Committed::<C> {
             permuted_input_poly: self.permuted_input_poly,

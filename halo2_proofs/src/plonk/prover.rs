@@ -2,7 +2,10 @@ use ff::Field;
 use group::Curve;
 use halo2curves::CurveExt;
 use rand_core::RngCore;
-use rayon::prelude::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
+use rayon::prelude::{
+    IndexedParallelIterator, IntoParallelIterator, IntoParallelRefIterator,
+    IntoParallelRefMutIterator, ParallelIterator,
+};
 use std::cell::Cell;
 use std::collections::BTreeSet;
 use std::env::var;
@@ -61,6 +64,13 @@ pub fn create_proof<
 where
     Scheme::ParamsProver: Sync,
 {
+    let mut now = std::time::Instant::now();
+    let mut timer = |prefix: Option<&str>| {
+        if let Some(prefix) = prefix {
+            println!("{}: {:?}", prefix, now.elapsed());
+        }
+        now = std::time::Instant::now();
+    };
     for instance in instances.iter() {
         if instance.len() != pk.vk.cs.num_instance_columns {
             return Err(Error::InvalidInstances);
@@ -137,6 +147,7 @@ where
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    timer(Some("instance"));
 
     #[derive(Clone)]
     struct AdviceSingle<C: CurveAffine, B: Basis> {
@@ -517,23 +528,30 @@ where
 
         (advice, challenges)
     };
+    timer(Some("advie, challenges"));
 
     // Sample theta challenge for keeping lookup columns linearly independent
     let theta: ChallengeTheta<_> = transcript.squeeze_challenge_scalar();
 
     let lookups: Vec<Vec<lookup::prover::Permuted<Scheme::Curve>>> = {
-        let transcript = Arc::new(Mutex::new(&mut *transcript));
         let rng = Arc::new(Mutex::new(&mut rng));
-        instance
+        let mut commits =
+            vec![
+                vec![(Scheme::Curve::default(), Scheme::Curve::default()); pk.vk.cs.lookups.len()];
+                instance.len()
+            ];
+        let ret = instance
             .par_iter()
             .zip(advice.par_iter())
-            .map(|(instance, advice)| -> Result<Vec<_>, Error> {
+            .zip(commits.par_iter_mut())
+            .map(|((instance, advice), commits)| -> Result<Vec<_>, Error> {
                 // Construct and commit to permuted values for each lookup
                 pk.vk
                     .cs
                     .lookups
-                    .iter()
-                    .map(|lookup| {
+                    .par_iter()
+                    .zip(commits.par_iter_mut())
+                    .map(|(lookup, commits)| {
                         lookup.commit_permuted(
                             pk,
                             params,
@@ -544,13 +562,22 @@ where
                             &instance.instance_values,
                             &challenges,
                             rng.clone(),
-                            transcript.clone(),
+                            commits,
                         )
                     })
                     .collect()
             })
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for commits in commits.iter() {
+            for (a, b) in commits.iter() {
+                transcript.write_point(*a)?;
+                transcript.write_point(*b)?;
+            }
+        }
+        ret
     };
+    timer(Some("lookups"));
 
     // Sample beta challenge
     let beta: ChallengeBeta<_> = transcript.squeeze_challenge_scalar();
@@ -577,17 +604,32 @@ where
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    timer(Some("permutations commit"));
 
-    let lookups: Vec<Vec<lookup::prover::Committed<Scheme::Curve>>> = lookups
-        .into_iter()
-        .map(|lookups| -> Result<Vec<_>, _> {
-            // Construct and commit to products for each lookup
-            lookups
-                .into_iter()
-                .map(|lookup| lookup.commit_product(pk, params, beta, gamma, &mut rng, transcript))
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let lookups: Vec<Vec<lookup::prover::Committed<Scheme::Curve>>> = {
+        let transcript = Arc::new(Mutex::new(&mut *transcript));
+        let rng = Arc::new(Mutex::new(&mut rng));
+        lookups
+            .into_iter()
+            .map(|lookups| -> Result<Vec<_>, _> {
+                // Construct and commit to products for each lookup
+                lookups
+                    .into_iter()
+                    .map(|lookup| {
+                        lookup.commit_product(
+                            pk,
+                            params,
+                            beta,
+                            gamma,
+                            rng.clone(),
+                            transcript.clone(),
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    timer(Some("lookups commit product"));
 
     // Commit to the vanishing argument's random polynomial for blinding h(x_3)
     let vanishing = vanishing::Argument::commit(params, domain, &mut rng, transcript)?;
@@ -613,6 +655,7 @@ where
             },
         )
         .collect();
+    timer(Some("advice single"));
 
     // Evaluate the h(X) polynomial
     let h_poly = pk.ev.evaluate_h(
@@ -633,6 +676,7 @@ where
         &lookups,
         &permutations,
     );
+    timer(Some("evaluate h_poly"));
 
     // Construct the vanishing argument's h(X) commitments
     let vanishing = vanishing.construct(params, domain, h_poly, &mut rng, transcript)?;
@@ -662,6 +706,7 @@ where
         }
     }
 
+    timer(Some("-"));
     // Compute and hash advice evals for each circuit instance
     for advice in advice.iter() {
         // Evaluate polynomials at omega^i x
@@ -681,6 +726,7 @@ where
             transcript.write_scalar(*eval)?;
         }
     }
+    timer(Some("advice eval"));
 
     // Compute and hash fixed evals (shared across all circuit instances)
     let fixed_evals: Vec<_> = meta
@@ -695,17 +741,21 @@ where
     for eval in fixed_evals.iter() {
         transcript.write_scalar(*eval)?;
     }
+    timer(Some("fixed eval"));
 
     let vanishing = vanishing.evaluate(x, xn, domain, transcript)?;
+    timer(Some("vanishing eval"));
 
     // Evaluate common permutation data
     pk.permutation.evaluate(x, transcript)?;
+    timer(Some("common permutation eval"));
 
     // Evaluate the permutations, if any, at omega^i x.
     let permutations: Vec<permutation::prover::Evaluated<Scheme::Curve>> = permutations
         .into_iter()
         .map(|permutation| -> Result<_, _> { permutation.construct().evaluate(pk, x, transcript) })
         .collect::<Result<Vec<_>, _>>()?;
+    timer(Some("permutation eval"));
 
     // Evaluate the lookups, if any, at omega^i x.
     let lookups: Vec<Vec<lookup::prover::Evaluated<Scheme::Curve>>> = lookups
@@ -717,6 +767,7 @@ where
                 .collect::<Result<Vec<_>, _>>()
         })
         .collect::<Result<Vec<_>, _>>()?;
+    timer(Some("lookups eval"));
 
     let instances = instance
         .iter()
@@ -765,9 +816,12 @@ where
         .chain(pk.permutation.open(x))
         // We query the h(X) polynomial at x
         .chain(vanishing.open(x));
+    timer(Some("-"));
 
     let prover = P::new(params);
     prover
         .create_proof(rng, transcript, instances)
-        .map_err(|_| Error::ConstraintSystemFailure)
+        .map_err(|_| Error::ConstraintSystemFailure)?;
+    timer(Some("prover gen proof"));
+    Ok(())
 }
